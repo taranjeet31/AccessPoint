@@ -1,3 +1,8 @@
+//
+//  iosClientApp.swift
+//  iosClient
+//
+
 import SwiftUI
 import Combine
 import WebRTC
@@ -5,7 +10,7 @@ import RemoteControllerCore
 import RemoteControllerUI
 
 @main
-struct RemoteControllerApp: App {
+struct iosClientApp: App {
     @StateObject private var coordinator = ControllerCoordinator()
 
     var body: some Scene {

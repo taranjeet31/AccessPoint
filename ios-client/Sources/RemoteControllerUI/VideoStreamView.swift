@@ -22,7 +22,9 @@ public struct VideoStreamView: UIViewRepresentable {
     }
 
     public func updateUIView(_ uiView: RTCMTLVideoView, context: Context) {
-        // Track updates handled dynamically
+        if let track = videoTrack {
+            track.add(uiView)
+        }
     }
 }
 

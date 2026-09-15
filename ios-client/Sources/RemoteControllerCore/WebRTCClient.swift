@@ -190,7 +190,19 @@ public final class WebRTCClient: NSObject, RTCPeerConnectionDelegate, RTCDataCha
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
 
     public func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
+        print("[WebRTCClient-iOS] Received stream with \(stream.videoTracks.count) video tracks")
         if let track = stream.videoTracks.first {
+            self.remoteVideoTrack = track
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.delegate?.webRTCClient(self, didReceiveRemoteVideoTrack: track)
+            }
+        }
+    }
+
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didAdd receiver: RTCRtpReceiver, streams: [RTCMediaStream]) {
+        print("[WebRTCClient-iOS] Received RTP receiver with track: \(String(describing: receiver.track))")
+        if let track = receiver.track as? RTCVideoTrack {
             self.remoteVideoTrack = track
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }

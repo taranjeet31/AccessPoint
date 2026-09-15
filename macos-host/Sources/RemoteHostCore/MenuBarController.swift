@@ -1,9 +1,10 @@
 import AppKit
 import SwiftUI
+import Combine
 import WebRTC
 
 @MainActor
-public final class MenuBarController: NSObject, SignalingClientDelegate, WebRTCClientDelegate {
+public final class MenuBarController: NSObject, ObservableObject, SignalingClientDelegate, WebRTCClientDelegate {
     private var statusItem: NSStatusItem?
     private var pairingWindow: NSWindow?
 
@@ -120,6 +121,10 @@ public final class MenuBarController: NSObject, SignalingClientDelegate, WebRTCC
     }
 
     @objc public func showPairingWindow() {
+        showPairingWindow(requestNewCode: pairingCode.isEmpty)
+    }
+
+    public func showPairingWindow(requestNewCode: Bool = false) {
         if pairingWindow == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 340, height: 440),
@@ -131,27 +136,15 @@ public final class MenuBarController: NSObject, SignalingClientDelegate, WebRTCC
             window.center()
             window.isReleasedWhenClosed = false
 
-            let pairingView = PairingView(
-                pairingCode: Binding(get: { self.pairingCode }, set: { self.pairingCode = $0 }),
-                remainingSeconds: Binding(get: { self.remainingSeconds }, set: { self.remainingSeconds = $0 }),
-                pendingRequestDeviceName: Binding(get: { self.pendingRequestDeviceName }, set: { self.pendingRequestDeviceName = $0 }),
-                pendingRequestDeviceId: Binding(get: { self.pendingRequestDeviceId }, set: { self.pendingRequestDeviceId = $0 }),
-                onRefreshCode: { [weak self] in
-                    self?.signalingClient.createPairingCode()
-                },
-                onApproveRequest: { [weak self] peerId in
-                    self?.approvePairRequest(peerId)
-                },
-                onDenyRequest: { [weak self] peerId in
-                    self?.denyPairRequest(peerId)
-                }
-            )
-
-            window.contentView = NSHostingView(rootView: pairingView)
+            let pairingView = PairingView(controller: self)
+            let hostingController = NSHostingController(rootView: pairingView)
+            window.contentViewController = hostingController
             self.pairingWindow = window
         }
 
-        signalingClient.createPairingCode()
+        if requestNewCode || pairingCode.isEmpty {
+            signalingClient.createPairingCode()
+        }
         pairingWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -208,22 +201,28 @@ public final class MenuBarController: NSObject, SignalingClientDelegate, WebRTCC
 
     // MARK: - Pairing actions
 
-    private func approvePairRequest(_ peerId: String) {
+    public func approvePairRequest(_ peerId: String) {
         signalingClient.approvePair(peerDeviceId: peerId)
         pendingRequestDeviceId = nil
         pendingRequestDeviceName = nil
     }
 
-    private func denyPairRequest(_ peerId: String) {
+    public func denyPairRequest(_ peerId: String) {
         signalingClient.denyPair(peerDeviceId: peerId)
         pendingRequestDeviceId = nil
         pendingRequestDeviceName = nil
+    }
+
+    public func refreshPairingCode() {
+        pairingCode = ""
+        signalingClient.createPairingCode()
     }
 
     // MARK: - SignalingClientDelegate
 
     public func signalingClientDidConnect(_ client: SignalingClient) {
         print("[Host] Signaling connected")
+        signalingClient.createPairingCode()
     }
 
     public func signalingClientDidDisconnect(_ client: SignalingClient, error: Error?) {
@@ -242,7 +241,7 @@ public final class MenuBarController: NSObject, SignalingClientDelegate, WebRTCC
     public func signalingClient(_ client: SignalingClient, didReceivePairRequest fromDeviceId: String, fromDeviceName: String) {
         self.pendingRequestDeviceId = fromDeviceId
         self.pendingRequestDeviceName = fromDeviceName
-        showPairingWindow()
+        showPairingWindow(requestNewCode: false)
     }
 
     public func signalingClient(_ client: SignalingClient, didReceivePaired peerDeviceId: String, peerDeviceName: String, authToken: String) {

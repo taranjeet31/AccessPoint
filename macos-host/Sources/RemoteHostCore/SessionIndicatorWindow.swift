@@ -63,11 +63,14 @@ public final class SessionIndicatorWindow: @unchecked Sendable {
     public static let shared = SessionIndicatorWindow()
 
     private var panel: NSPanel?
+    private var hostingController: NSHostingController<SessionIndicatorView>?
 
     public init() {}
 
     @MainActor
     public func show(peerName: String, onDisconnect: @escaping () -> Void) {
+        let contentView = SessionIndicatorView(peerName: peerName, onDisconnect: onDisconnect)
+
         if panel == nil {
             let newPanel = NSPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 280, height: 60),
@@ -82,13 +85,16 @@ public final class SessionIndicatorWindow: @unchecked Sendable {
             newPanel.hasShadow = true
             newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             newPanel.isMovableByWindowBackground = true
+
+            let hc = NSHostingController(rootView: contentView)
+            newPanel.contentViewController = hc
+            self.hostingController = hc
             self.panel = newPanel
+        } else {
+            hostingController?.rootView = contentView
         }
 
         guard let panel = panel else { return }
-
-        let contentView = SessionIndicatorView(peerName: peerName, onDisconnect: onDisconnect)
-        panel.contentView = NSHostingView(rootView: contentView)
 
         if let screen = NSScreen.main {
             let screenRect = screen.visibleFrame
@@ -104,5 +110,6 @@ public final class SessionIndicatorWindow: @unchecked Sendable {
     public func hide() {
         panel?.orderOut(nil)
         panel = nil
+        hostingController = nil
     }
 }

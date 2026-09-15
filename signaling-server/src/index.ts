@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import http from 'http';
+import os from 'os';
 import express from 'express';
 import { SignalingWebSocketServer } from './wsServer.js';
 import { logger } from './logger.js';
@@ -25,10 +26,28 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// Start listening
-server.listen(PORT, () => {
-  logger.info(`Signaling server listening on port ${PORT}`);
+// Helper to get LAN IPs
+function getLocalIpAddresses(): string[] {
+  const interfaces = os.networkInterfaces();
+  const addresses: string[] = [];
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) {
+        addresses.push(net.address);
+      }
+    }
+  }
+  return addresses;
+}
+
+// Start listening on 0.0.0.0
+server.listen(PORT, '0.0.0.0', () => {
+  logger.info(`Signaling server listening on port ${PORT} (0.0.0.0)`);
   logger.info(`WebSocket endpoint: ws://localhost:${PORT}/ws`);
+  const lanIps = getLocalIpAddresses();
+  lanIps.forEach(ip => {
+    logger.info(`LAN WebSocket endpoint: ws://${ip}:${PORT}/ws`);
+  });
   logger.info(`Health check: http://localhost:${PORT}/health`);
 });
 

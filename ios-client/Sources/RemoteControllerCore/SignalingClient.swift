@@ -18,9 +18,11 @@ public protocol SignalingClientDelegate: AnyObject {
 public final class SignalingClient: NSObject, @unchecked Sendable {
     public weak var delegate: SignalingClientDelegate?
 
-    public let serverURL: URL
+    public private(set) var serverURL: URL
     public let deviceId: String
     public let deviceName: String
+
+    public var isCurrentlyConnected: Bool { isConnected }
 
     private var session: URLSession?
     private var webSocketTask: URLSessionWebSocketTask?
@@ -32,6 +34,37 @@ public final class SignalingClient: NSObject, @unchecked Sendable {
     private let jsonEncoder = JSONEncoder()
     private let jsonDecoder = JSONDecoder()
 
+    public static func normalizeSignalingURL(_ input: String) -> URL? {
+        var str = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if str.isEmpty { return nil }
+
+        str = str.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "'", with: "")
+
+        if str.hasPrefix("http://") {
+            str = "ws://" + str.dropFirst("http://".count)
+        } else if str.hasPrefix("https://") {
+            str = "wss://" + str.dropFirst("https://".count)
+        } else if !str.hasPrefix("ws://") && !str.hasPrefix("wss://") {
+            str = "ws://" + str
+        }
+
+        guard var components = URLComponents(string: str) else { return nil }
+
+        if components.port == nil {
+            let host = components.host ?? ""
+            let isIP = host.range(of: #"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"#, options: .regularExpression) != nil
+            if isIP || host == "localhost" {
+                components.port = 8080
+            }
+        }
+
+        if components.path.isEmpty || components.path == "/" {
+            components.path = "/ws"
+        }
+
+        return components.url
+    }
+
     public init(
         serverURL: URL? = nil,
         deviceId: String = UUID().uuidString,
@@ -39,7 +72,7 @@ public final class SignalingClient: NSObject, @unchecked Sendable {
     ) {
         if let serverURL = serverURL {
             self.serverURL = serverURL
-        } else if let envUrlString = ProcessInfo.processInfo.environment["SIGNALING_URL"], let envUrl = URL(string: envUrlString) {
+        } else if let envUrlString = ProcessInfo.processInfo.environment["SIGNALING_URL"], let envUrl = SignalingClient.normalizeSignalingURL(envUrlString) {
             self.serverURL = envUrl
         } else {
             self.serverURL = URL(string: "ws://localhost:8080/ws")!
@@ -49,8 +82,22 @@ public final class SignalingClient: NSObject, @unchecked Sendable {
         super.init()
     }
 
+    public func updateServerURL(_ newURL: URL) {
+        guard serverURL != newURL else { return }
+        reconnect(withServerURL: newURL)
+    }
+
+    public func reconnect(withServerURL newURL: URL? = nil) {
+        disconnect()
+        if let newURL = newURL {
+            self.serverURL = newURL
+        }
+        connect()
+    }
+
     public func connect() {
         isIntentionalClose = false
+        reconnectAttempt = 0
         reconnectWorkItem?.cancel()
 
         session = URLSession(configuration: .default, delegate: nil, delegateQueue: OperationQueue())

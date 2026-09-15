@@ -2,31 +2,16 @@ import SwiftUI
 import CoreImage.CIFilterBuiltins
 
 public struct PairingView: View {
-    @Binding public var pairingCode: String
-    @Binding public var remainingSeconds: Int
-    public let onRefreshCode: () -> Void
-    public let onApproveRequest: (String) -> Void
-    public let onDenyRequest: (String) -> Void
+    @ObservedObject public var controller: MenuBarController
 
-    @Binding public var pendingRequestDeviceName: String?
-    @Binding public var pendingRequestDeviceId: String?
+    public init(controller: MenuBarController) {
+        self.controller = controller
+    }
 
-    public init(
-        pairingCode: Binding<String>,
-        remainingSeconds: Binding<Int>,
-        pendingRequestDeviceName: Binding<String?>,
-        pendingRequestDeviceId: Binding<String?>,
-        onRefreshCode: @escaping () -> Void,
-        onApproveRequest: @escaping (String) -> Void,
-        onDenyRequest: @escaping (String) -> Void
-    ) {
-        self._pairingCode = pairingCode
-        self._remainingSeconds = remainingSeconds
-        self._pendingRequestDeviceName = pendingRequestDeviceName
-        self._pendingRequestDeviceId = pendingRequestDeviceId
-        self.onRefreshCode = onRefreshCode
-        self.onApproveRequest = onApproveRequest
-        self.onDenyRequest = onDenyRequest
+    private var qrCodePayload: String {
+        let code = controller.pairingCode.isEmpty ? "000000" : controller.pairingCode
+        let serverUrl = controller.signalingClient.serverURL.absoluteString
+        return "{\"code\":\"\(code)\",\"serverUrl\":\"\(serverUrl)\"}"
     }
 
     public var body: some View {
@@ -42,7 +27,7 @@ public struct PairingView: View {
             }
 
             // QR Code
-            if let qrImage = generateQRCode(from: pairingCode.isEmpty ? "000000" : pairingCode) {
+            if let qrImage = generateQRCode(from: qrCodePayload) {
                 Image(nsImage: qrImage)
                     .interpolation(.none)
                     .resizable()
@@ -56,8 +41,8 @@ public struct PairingView: View {
 
             // 6-digit code display
             VStack(spacing: 8) {
-                if !pairingCode.isEmpty {
-                    Text(formattedCode(pairingCode))
+                if !controller.pairingCode.isEmpty {
+                    Text(formattedCode(controller.pairingCode))
                         .font(.system(size: 32, weight: .heavy, design: .monospaced))
                         .kerning(4)
                         .padding(.horizontal, 20)
@@ -72,14 +57,14 @@ public struct PairingView: View {
                 HStack {
                     Image(systemName: "clock")
                         .font(.system(size: 11))
-                    Text(timeString(from: remainingSeconds))
+                    Text(timeString(from: controller.remainingSeconds))
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                 }
-                .foregroundColor(remainingSeconds < 30 ? .red : .secondary)
+                .foregroundColor(controller.remainingSeconds < 30 ? .red : .secondary)
             }
 
             // Incoming Pair Request Prompt
-            if let reqName = pendingRequestDeviceName, let reqId = pendingRequestDeviceId {
+            if let reqName = controller.pendingRequestDeviceName, let reqId = controller.pendingRequestDeviceId {
                 VStack(spacing: 12) {
                     Text("Connection Request")
                         .font(.system(size: 13, weight: .bold))
@@ -91,12 +76,12 @@ public struct PairingView: View {
 
                     HStack(spacing: 16) {
                         Button("Deny") {
-                            onDenyRequest(reqId)
+                            controller.denyPairRequest(reqId)
                         }
                         .buttonStyle(.bordered)
 
                         Button("Approve") {
-                            onApproveRequest(reqId)
+                            controller.approvePairRequest(reqId)
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.green)
@@ -113,7 +98,9 @@ public struct PairingView: View {
 
             // Bottom controls
             HStack {
-                Button(action: onRefreshCode) {
+                Button(action: {
+                    controller.refreshPairingCode()
+                }) {
                     Label("New Code", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
@@ -122,7 +109,7 @@ public struct PairingView: View {
             }
         }
         .padding(24)
-        .frame(width: 320)
+        .frame(width: 340, height: 440)
     }
 
     private func formattedCode(_ code: String) -> String {
@@ -138,15 +125,18 @@ public struct PairingView: View {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
+    private static let ciContext = CIContext()
+
     private func generateQRCode(from string: String) -> NSImage? {
-        let context = CIContext()
-        let filter = CIFilter.qrCodeGenerator()
-        filter.setValue(Data(string.utf8), forKey: "inputMessage")
+        guard !string.isEmpty,
+              let data = string.data(using: .utf8),
+              let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
         filter.setValue("M", forKey: "inputCorrectionLevel")
-
         guard let outputImage = filter.outputImage else { return nil }
-        guard let cgImage = context.createCGImage(outputImage, from: outputImage.extent) else { return nil }
-
+        let transform = CGAffineTransform(scaleX: 5, y: 5)
+        let scaledImage = outputImage.transformed(by: transform)
+        guard let cgImage = Self.ciContext.createCGImage(scaledImage, from: scaledImage.extent) else { return nil }
         return NSImage(cgImage: cgImage, size: NSSize(width: 160, height: 160))
     }
 }

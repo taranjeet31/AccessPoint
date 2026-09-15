@@ -147,6 +147,8 @@ keychain.clearAllTokens()
 let saved = keychain.saveToken(testToken, forPeerDeviceId: testPeer)
 assertTrue(saved, "Keychain save token")
 
+import AppKit
+
 let retrieved = keychain.getToken(forPeerDeviceId: testPeer)
 assertEqual(retrieved, testToken, "Keychain get token")
 
@@ -158,4 +160,27 @@ assertEqual(retrievedAfterDelete, nil, "Keychain get token after deletion")
 keychain.clearAllTokens()
 print("  ✓ Keychain Store tests passed.")
 
-print("\n🎉 All macOS Host unit and integration tests passed successfully!")
+// MARK: - 4. UI Layout & Constraint Tests
+print("  [4/4] Testing AppKit UI Layout & Constraint Update Pass...")
+
+let app = NSApplication.shared
+app.setActivationPolicy(.accessory)
+
+Task { @MainActor in
+    let controller = MenuBarController()
+    controller.showPairingWindow()
+
+    SessionIndicatorWindow.shared.show(peerName: "Test Device") {}
+
+    for window in app.windows {
+        window.contentView?.needsUpdateConstraints = true
+        window.contentView?.updateConstraintsForSubtreeIfNeeded()
+        window.layoutIfNeeded()
+    }
+    print("  ✓ UI Layout tests passed.")
+    print("\n🎉 All macOS Host unit and integration tests passed successfully!")
+    exit(0)
+}
+
+RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))
+
