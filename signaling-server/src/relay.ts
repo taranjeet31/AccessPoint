@@ -90,6 +90,34 @@ export class RelayManager {
   }
 
   /**
+   * Relays a generic message payload to target device or paired peer.
+   */
+  public relayGeneric(
+    fromDeviceId: string,
+    targetDeviceId: string | undefined,
+    payload: Record<string, unknown>
+  ): { success: boolean; errorCode?: ErrorCode; message?: string } {
+    const sender = this.registry.getByDeviceId(fromDeviceId);
+    const targetId = targetDeviceId || sender?.activePeerDeviceId;
+
+    if (!targetId) {
+      return { success: false, errorCode: 'NOT_PAIRED', message: 'No target peer specified or paired' };
+    }
+
+    const sent = this.registry.sendTo(targetId, {
+      type: (payload.type as string) || 'generic',
+      ...payload,
+      fromDeviceId,
+    });
+
+    if (!sent) {
+      return { success: false, errorCode: 'PEER_OFFLINE', message: 'Failed to deliver message to target device' };
+    }
+
+    return { success: true };
+  }
+
+  /**
    * Handles explicit end of session.
    */
   public handleEndSession(fromDeviceId: string, targetDeviceId: string): void {

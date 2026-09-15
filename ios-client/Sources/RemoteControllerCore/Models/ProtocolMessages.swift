@@ -294,6 +294,48 @@ public enum SignalingMessage: Codable, Sendable {
     }
 }
 
+// MARK: - Remote App & Window Models
+
+public struct RemoteApp: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { bundleID }
+    public let bundleID: String
+    public let name: String
+    public let iconPNG: String?
+    public let windows: [RemoteWindow]
+
+    public init(bundleID: String, name: String, iconPNG: String?, windows: [RemoteWindow]) {
+        self.bundleID = bundleID
+        self.name = name
+        self.iconPNG = iconPNG
+        self.windows = windows
+    }
+}
+
+public struct RemoteWindow: Codable, Equatable, Sendable, Identifiable {
+    public var id: UInt32 { windowID }
+    public let windowID: UInt32
+    public let title: String
+    public let frameX: Double
+    public let frameY: Double
+    public let frameWidth: Double
+    public let frameHeight: Double
+    public let thumbnailJPEG: String?
+
+    public init(windowID: UInt32, title: String, frame: CGRect, thumbnailJPEG: String? = nil) {
+        self.windowID = windowID
+        self.title = title
+        self.frameX = Double(frame.origin.x)
+        self.frameY = Double(frame.origin.y)
+        self.frameWidth = Double(frame.size.width)
+        self.frameHeight = Double(frame.size.height)
+        self.thumbnailJPEG = thumbnailJPEG
+    }
+
+    public var frame: CGRect {
+        CGRect(x: frameX, y: frameY, width: frameWidth, height: frameHeight)
+    }
+}
+
 // MARK: - Control Channel Data Messages
 
 public enum ControlChannelMessage: Codable, Sendable, Equatable {
@@ -305,6 +347,11 @@ public enum ControlChannelMessage: Codable, Sendable, Equatable {
     case keyDown(keyCode: UInt16, modifiers: [String])
     case keyUp(keyCode: UInt16, modifiers: [String])
     case textInput(text: String)
+    case appList(apps: [RemoteApp])
+    case selectWindow(windowID: UInt32)
+    case selectScreen
+    case windowInfo(windowID: UInt32, frameX: Double, frameY: Double, frameWidth: Double, frameHeight: Double)
+    case windowAction(windowID: UInt32, action: String)
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -319,6 +366,13 @@ public enum ControlChannelMessage: Codable, Sendable, Equatable {
         case keyCode
         case modifiers
         case text
+        case apps
+        case windowID
+        case frameX
+        case frameY
+        case frameWidth
+        case frameHeight
+        case action
     }
 
     public init(from decoder: Decoder) throws {
@@ -367,6 +421,30 @@ public enum ControlChannelMessage: Codable, Sendable, Equatable {
         case "text_input":
             let text = try container.decode(String.self, forKey: .text)
             self = .textInput(text: text)
+
+        case "app_list":
+            let apps = try container.decode([RemoteApp].self, forKey: .apps)
+            self = .appList(apps: apps)
+
+        case "select_window":
+            let windowID = try container.decode(UInt32.self, forKey: .windowID)
+            self = .selectWindow(windowID: windowID)
+
+        case "select_screen":
+            self = .selectScreen
+
+        case "window_info":
+            let windowID = try container.decode(UInt32.self, forKey: .windowID)
+            let frameX = try container.decode(Double.self, forKey: .frameX)
+            let frameY = try container.decode(Double.self, forKey: .frameY)
+            let frameWidth = try container.decode(Double.self, forKey: .frameWidth)
+            let frameHeight = try container.decode(Double.self, forKey: .frameHeight)
+            self = .windowInfo(windowID: windowID, frameX: frameX, frameY: frameY, frameWidth: frameWidth, frameHeight: frameHeight)
+
+        case "window_action":
+            let windowID = try container.decode(UInt32.self, forKey: .windowID)
+            let action = try container.decode(String.self, forKey: .action)
+            self = .windowAction(windowID: windowID, action: action)
 
         default:
             throw DecodingError.dataCorruptedNamed("Unknown control message type: \(type)", codingPath: container.codingPath)
@@ -418,6 +496,30 @@ public enum ControlChannelMessage: Codable, Sendable, Equatable {
         case .textInput(let text):
             try container.encode("text_input", forKey: .type)
             try container.encode(text, forKey: .text)
+
+        case .appList(let apps):
+            try container.encode("app_list", forKey: .type)
+            try container.encode(apps, forKey: .apps)
+
+        case .selectWindow(let windowID):
+            try container.encode("select_window", forKey: .type)
+            try container.encode(windowID, forKey: .windowID)
+
+        case .selectScreen:
+            try container.encode("select_screen", forKey: .type)
+
+        case .windowInfo(let windowID, let frameX, let frameY, let frameWidth, let frameHeight):
+            try container.encode("window_info", forKey: .type)
+            try container.encode(windowID, forKey: .windowID)
+            try container.encode(frameX, forKey: .frameX)
+            try container.encode(frameY, forKey: .frameY)
+            try container.encode(frameWidth, forKey: .frameWidth)
+            try container.encode(frameHeight, forKey: .frameHeight)
+
+        case .windowAction(let windowID, let action):
+            try container.encode("window_action", forKey: .type)
+            try container.encode(windowID, forKey: .windowID)
+            try container.encode(action, forKey: .action)
         }
     }
 }

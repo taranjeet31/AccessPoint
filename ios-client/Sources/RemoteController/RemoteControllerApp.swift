@@ -11,20 +11,35 @@ struct RemoteControllerApp: App {
     var body: some Scene {
         WindowGroup {
             if coordinator.isSessionActive {
-                RemoteScreenView(
-                    videoTrack: coordinator.remoteVideoTrack,
-                    gestureController: coordinator.gestureController,
-                    isReconnecting: coordinator.isReconnecting,
-                    onSendControlMessage: { msg in
-                        coordinator.sendControlMessage(msg)
-                    },
-                    onSendShortcut: { shortcut in
-                        coordinator.sendShortcut(shortcut)
-                    },
-                    onDisconnect: {
-                        coordinator.disconnectSession()
-                    }
-                )
+                if coordinator.displayMode == .appPicker {
+                    AppPickerView(
+                        apps: coordinator.remoteApps,
+                        onSelectWindow: { windowID in
+                            coordinator.selectWindow(windowID)
+                        },
+                        onSelectScreen: {
+                            coordinator.selectScreen()
+                        }
+                    )
+                } else {
+                    RemoteScreenView(
+                        videoTrack: coordinator.remoteVideoTrack,
+                        gestureController: coordinator.gestureController,
+                        isReconnecting: coordinator.isReconnecting,
+                        onSendControlMessage: { msg in
+                            coordinator.sendControlMessage(msg)
+                        },
+                        onSendShortcut: { shortcut in
+                            coordinator.sendShortcut(shortcut)
+                        },
+                        onOpenAppPicker: {
+                            coordinator.showAppPicker()
+                        },
+                        onDisconnect: {
+                            coordinator.disconnectSession()
+                        }
+                    )
+                }
             } else {
                 PairingScanView(
                     isPairingPending: coordinator.isPairingPending,
@@ -46,6 +61,12 @@ struct RemoteControllerApp: App {
     }
 }
 
+public enum DisplayMode: Equatable {
+    case mirroring
+    case appPicker
+    case window(windowID: UInt32)
+}
+
 @MainActor
 final class ControllerCoordinator: ObservableObject, SignalingClientDelegate, WebRTCClientDelegate, NetworkMonitorDelegate {
     @Published public var isSessionActive = false
@@ -55,6 +76,8 @@ final class ControllerCoordinator: ObservableObject, SignalingClientDelegate, We
     @Published public var remoteVideoTrack: RTCVideoTrack?
     @Published public var serverURLString: String
     @Published public var isSignalingConnected = false
+    @Published public var displayMode: DisplayMode = .mirroring
+    @Published public var remoteApps: [RemoteApp] = []
 
     public let signalingClient: SignalingClient
     public let webRTCClient: WebRTCClient
@@ -171,6 +194,20 @@ final class ControllerCoordinator: ObservableObject, SignalingClientDelegate, We
         isReconnecting = false
         remoteVideoTrack = nil
         webRTCClient.closePeerConnection()
+    }
+
+    public func showAppPicker() {
+        self.displayMode = .appPicker
+    }
+
+    public func selectWindow(_ windowID: UInt32) {
+        self.displayMode = .window(windowID: windowID)
+        sendControlMessage(.selectWindow(windowID: windowID))
+    }
+
+    public func selectScreen() {
+        self.displayMode = .mirroring
+        sendControlMessage(.selectScreen)
     }
 
     public func sendControlMessage(_ message: ControlChannelMessage) {
@@ -292,8 +329,13 @@ final class ControllerCoordinator: ObservableObject, SignalingClientDelegate, We
     }
 
     public func webRTCClient(_ client: WebRTCClient, didReceiveControlMessage message: ControlChannelMessage) {
-        if case .displayInfo(let width, let height, let scale) = message {
+        switch message {
+        case .displayInfo(let width, let height, let scale):
             gestureController.updateDisplayInfo(widthPx: width, heightPx: height, scaleFactor: scale)
+        case .appList(let apps):
+            self.remoteApps = apps
+        default:
+            break
         }
     }
 

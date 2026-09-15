@@ -90,7 +90,7 @@ public final class WebRTCClient: NSObject, RTCPeerConnectionDelegate, RTCDataCha
         )
 
         pc.offer(for: constraints) { [weak self] offer, error in
-            guard self != nil else { return }
+            guard let self = self else { return }
             if let error = error {
                 completion(.failure(error))
                 return
@@ -101,14 +101,65 @@ public final class WebRTCClient: NSObject, RTCPeerConnectionDelegate, RTCDataCha
                 return
             }
 
-            pc.setLocalDescription(offer) { setLocalError in
+            let preferredSdp = self.preferH264(inSdp: offer.sdp)
+            let preferredOffer = RTCSessionDescription(type: .offer, sdp: preferredSdp)
+
+            print("[WebRTCClient-iOS] Local offer SDP (H.264 preferred):\n\(preferredSdp)")
+
+            pc.setLocalDescription(preferredOffer) { setLocalError in
                 if let setLocalError = setLocalError {
                     completion(.failure(setLocalError))
                 } else {
-                    completion(.success(offer.sdp))
+                    completion(.success(preferredSdp))
                 }
             }
         }
+    }
+
+    private func preferH264(inSdp sdp: String) -> String {
+        var lines = sdp.components(separatedBy: "\r\n")
+        var mVideoIndex = -1
+        var h264Payloads: [String] = []
+        var rtpMapPayloads: [String: String] = [:]
+
+        for (idx, line) in lines.enumerated() {
+            if line.hasPrefix("m=video ") {
+                mVideoIndex = idx
+            } else if line.hasPrefix("a=rtpmap:") {
+                let parts = line.dropFirst(9).components(separatedBy: " ")
+                if parts.count >= 2 {
+                    let pt = parts[0]
+                    let codecInfo = parts[1]
+                    rtpMapPayloads[pt] = codecInfo
+                    if codecInfo.lowercased().hasPrefix("h264") {
+                        h264Payloads.append(pt)
+                    }
+                }
+            }
+        }
+
+        guard mVideoIndex != -1, !h264Payloads.isEmpty else { return sdp }
+
+        let mLineParts = lines[mVideoIndex].components(separatedBy: " ")
+        guard mLineParts.count > 3 else { return sdp }
+
+        let header = mLineParts[0..<3]
+        let payloads = mLineParts[3...]
+
+        var newPayloads: [String] = []
+        for h264Pt in h264Payloads {
+            if payloads.contains(h264Pt) {
+                newPayloads.append(h264Pt)
+            }
+        }
+        for pt in payloads {
+            if !newPayloads.contains(pt) {
+                newPayloads.append(pt)
+            }
+        }
+
+        lines[mVideoIndex] = (header + newPayloads).joined(separator: " ")
+        return lines.joined(separator: "\r\n")
     }
 
     private func setupPeerConnection() {
@@ -142,6 +193,8 @@ public final class WebRTCClient: NSObject, RTCPeerConnectionDelegate, RTCDataCha
             completion(NSError(domain: "WebRTCClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "PeerConnection not initialized"]))
             return
         }
+
+        print("[WebRTCClient-iOS] Remote answer SDP:\n\(sdp)")
 
         let remoteDescription = RTCSessionDescription(type: .answer, sdp: sdp)
         pc.setRemoteDescription(remoteDescription) { error in

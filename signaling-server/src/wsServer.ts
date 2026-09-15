@@ -236,6 +236,17 @@ export class SignalingWebSocketServer {
         this.send(ws, credentials);
         break;
       }
+
+      case 'app_list':
+      case 'select_window': {
+        if (!existingDevice) return;
+        const targetId = message.targetDeviceId;
+        const res = this.relayManager.relayGeneric(existingDevice.deviceId, targetId, message as unknown as Record<string, unknown>);
+        if (!res.success && res.errorCode) {
+          this.sendError(ws, res.errorCode, res.message || 'Relay failed');
+        }
+        break;
+      }
     }
   }
 

@@ -72,6 +72,18 @@ export const RequestTurnCredentialsMessageSchema = z.object({
   type: z.literal('request_turn_credentials'),
 });
 
+export const AppListMessageSchema = z.object({
+  type: z.literal('app_list'),
+  targetDeviceId: z.string().optional(),
+  apps: z.array(z.record(z.unknown())),
+}).passthrough();
+
+export const SelectWindowMessageSchema = z.object({
+  type: z.literal('select_window'),
+  targetDeviceId: z.string().optional(),
+  windowId: z.number(),
+}).passthrough();
+
 export const InboundMessageSchema = z.discriminatedUnion('type', [
   RegisterMessageSchema,
   CreatePairingCodeMessageSchema,
@@ -84,6 +96,8 @@ export const InboundMessageSchema = z.discriminatedUnion('type', [
   IceCandidateMessageSchema,
   EndSessionMessageSchema,
   RequestTurnCredentialsMessageSchema,
+  AppListMessageSchema,
+  SelectWindowMessageSchema,
 ]);
 
 export type RegisterMessage = z.infer<typeof RegisterMessageSchema>;
@@ -97,6 +111,8 @@ export type AnswerMessage = z.infer<typeof AnswerMessageSchema>;
 export type IceCandidateMessage = z.infer<typeof IceCandidateMessageSchema>;
 export type EndSessionMessage = z.infer<typeof EndSessionMessageSchema>;
 export type RequestTurnCredentialsMessage = z.infer<typeof RequestTurnCredentialsMessageSchema>;
+export type AppListMessage = z.infer<typeof AppListMessageSchema>;
+export type SelectWindowMessage = z.infer<typeof SelectWindowMessageSchema>;
 
 export type InboundMessage = z.infer<typeof InboundMessageSchema>;
 
@@ -184,6 +200,12 @@ export interface ErrorMessage {
   message: string;
 }
 
+export interface GenericRelayMessage {
+  type: string;
+  fromDeviceId?: string;
+  [key: string]: unknown;
+}
+
 export type OutboundMessage =
   | RegisteredMessage
   | PairingCodeMessage
@@ -196,4 +218,5 @@ export type OutboundMessage =
   | RelayIceCandidateMessage
   | PeerDisconnectedMessage
   | TurnCredentialsMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | GenericRelayMessage;

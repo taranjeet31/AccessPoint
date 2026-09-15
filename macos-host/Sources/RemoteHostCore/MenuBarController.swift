@@ -12,6 +12,7 @@ public final class MenuBarController: NSObject, ObservableObject, SignalingClien
     public let webRTCClient: WebRTCClient
     public let screenCaptureManager: ScreenCaptureManager
     public let inputInjector: InputInjector
+    public let appDiscoveryService: AppDiscoveryService
     public let keychainStore: KeychainStore
     public let permissionManager: PermissionManager
     public let sessionIndicator: SessionIndicatorWindow
@@ -29,6 +30,7 @@ public final class MenuBarController: NSObject, ObservableObject, SignalingClien
         self.signalingClient = SignalingClient()
         self.webRTCClient = WebRTCClient()
         self.screenCaptureManager = ScreenCaptureManager()
+        self.appDiscoveryService = AppDiscoveryService()
         self.inputInjector = InputInjector.shared
         self.keychainStore = KeychainStore.shared
         self.permissionManager = PermissionManager.shared
@@ -38,12 +40,14 @@ public final class MenuBarController: NSObject, ObservableObject, SignalingClien
         self.signalingClient.delegate = self
         self.webRTCClient.delegate = self
         self.screenCaptureManager.delegate = self
+        self.appDiscoveryService.delegate = self
     }
 
     public func start() {
         setupStatusItem()
         signalingClient.connect()
         signalingClient.requestTurnCredentials()
+        appDiscoveryService.start()
 
         // Check permissions at startup
         if !permissionManager.isAccessibilityGranted {
@@ -322,7 +326,37 @@ public final class MenuBarController: NSObject, ObservableObject, SignalingClien
     }
 
     public func webRTCClient(_ client: WebRTCClient, didReceiveControlMessage message: ControlChannelMessage) {
-        inputInjector.handleControlMessage(message)
+        switch message {
+        case .selectWindow(let windowID):
+            Task { @MainActor in
+                do {
+                    try await screenCaptureManager.startWindowCapture(windowID: windowID)
+                    inputInjector.setTargetWindow(
+                        frame: screenCaptureManager.currentWindowFrame,
+                        processID: screenCaptureManager.currentWindowProcessID
+                    )
+                    if let winFrame = screenCaptureManager.currentWindowFrame {
+                        let info = ControlChannelMessage.windowInfo(
+                            windowID: windowID,
+                            frameX: Double(winFrame.origin.x),
+                            frameY: Double(winFrame.origin.y),
+                            frameWidth: Double(winFrame.size.width),
+                            frameHeight: Double(winFrame.size.height)
+                        )
+                        webRTCClient.sendControlMessage(info)
+                    }
+                } catch {
+                    print("[Host] Failed to start window capture for \(windowID): \(error)")
+                }
+            }
+        case .selectScreen:
+            Task { @MainActor in
+                try? await screenCaptureManager.startCapture()
+                inputInjector.setTargetWindow(frame: nil, processID: nil)
+            }
+        default:
+            inputInjector.handleControlMessage(message)
+        }
     }
 
     public func webRTCClientDidOpenDataChannel(_ client: WebRTCClient) {
@@ -333,6 +367,12 @@ public final class MenuBarController: NSObject, ObservableObject, SignalingClien
             scaleFactor: screenCaptureManager.currentScaleFactor
         )
         webRTCClient.sendControlMessage(displayInfo)
+
+        // Start app discovery service and push initial app list immediately
+        appDiscoveryService.start()
+        Task { @MainActor in
+            await self.appDiscoveryService.refreshAppList()
+        }
 
         // Show on-screen session indicator
         if let peerName = activePeerDeviceName {
@@ -346,6 +386,15 @@ public final class MenuBarController: NSObject, ObservableObject, SignalingClien
         sessionIndicator.hide()
     }
 
+}
+
+extension MenuBarController: AppDiscoveryServiceDelegate {
+    public nonisolated func appDiscoveryService(_ service: AppDiscoveryService, didUpdateAppList apps: [RemoteApp]) {
+        Task { @MainActor in
+            let message = ControlChannelMessage.appList(apps: apps)
+            self.webRTCClient.sendControlMessage(message)
+        }
+    }
 }
 
 extension MenuBarController: ScreenCaptureManagerDelegate {
@@ -362,6 +411,10 @@ extension MenuBarController: ScreenCaptureManagerDelegate {
                 scaleFactor: scaleFactor
             )
             self.webRTCClient.sendControlMessage(displayInfo)
+
+            if let winFrame = self.screenCaptureManager.currentWindowFrame {
+                self.inputInjector.setTargetWindow(frame: winFrame, processID: self.screenCaptureManager.currentWindowProcessID)
+            }
         }
     }
 
