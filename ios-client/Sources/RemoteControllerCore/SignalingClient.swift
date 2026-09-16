@@ -30,6 +30,7 @@ public final class SignalingClient: NSObject, @unchecked Sendable {
     private var isIntentionalClose = false
     private var reconnectAttempt = 0
     private var reconnectWorkItem: DispatchWorkItem?
+    private var pingTimer: Timer?
 
     private let jsonEncoder = JSONEncoder()
     private let jsonDecoder = JSONDecoder()
@@ -101,15 +102,28 @@ public final class SignalingClient: NSObject, @unchecked Sendable {
     }
 
     public func connect() {
-        isIntentionalClose = false
-        reconnectAttempt = 0
         reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
 
-        session = URLSession(configuration: .default, delegate: nil, delegateQueue: OperationQueue())
-        webSocketTask = session?.webSocketTask(with: serverURL)
-        webSocketTask?.resume()
+        stopPingTimer()
 
-        listenForMessages()
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+
+        session?.invalidateAndCancel()
+        session = nil
+
+        isIntentionalClose = false
+
+        let newSession = URLSession(configuration: .default, delegate: nil, delegateQueue: OperationQueue())
+        let newTask = newSession.webSocketTask(with: serverURL)
+
+        self.session = newSession
+        self.webSocketTask = newTask
+
+        newTask.resume()
+
+        listenForMessages(task: newTask)
 
         // Register controller
         let registerMessage = SignalingMessage.register(
@@ -123,21 +137,52 @@ public final class SignalingClient: NSObject, @unchecked Sendable {
     public func disconnect() {
         isIntentionalClose = true
         reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+
+        stopPingTimer()
+
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
+
+        session?.invalidateAndCancel()
         session = nil
+
         isConnected = false
     }
 
-    private func listenForMessages() {
-        webSocketTask?.receive { [weak self] result in
+    private func startPingTimer() {
+        DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
+            self.stopPingTimer()
+            self.pingTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] _ in
+                guard let self = self, self.isConnected, let task = self.webSocketTask else { return }
+                task.sendPing { error in
+                    if let error = error {
+                        print("[SignalingClient-iOS] Ping error: \(error)")
+                    }
+                }
+            }
+        }
+    }
+
+    private func stopPingTimer() {
+        pingTimer?.invalidate()
+        pingTimer = nil
+    }
+
+    private func listenForMessages(task: URLSessionWebSocketTask) {
+        task.receive { [weak self, weak task] result in
+            guard let self = self, let currentTask = task, currentTask === self.webSocketTask else {
+                // Ignore callbacks from old/orphaned tasks
+                return
+            }
 
             switch result {
             case .success(let message):
                 if !self.isConnected {
                     self.isConnected = true
                     self.reconnectAttempt = 0
+                    self.startPingTimer()
                     DispatchQueue.main.async {
                         self.delegate?.signalingClientDidConnect(self)
                     }
@@ -154,11 +199,12 @@ public final class SignalingClient: NSObject, @unchecked Sendable {
                     break
                 }
 
-                // Continue listening
-                self.listenForMessages()
+                // Continue listening on current task
+                self.listenForMessages(task: currentTask)
 
             case .failure(let error):
                 self.isConnected = false
+                self.stopPingTimer()
                 DispatchQueue.main.async {
                     self.delegate?.signalingClientDidDisconnect(self, error: error)
                 }
