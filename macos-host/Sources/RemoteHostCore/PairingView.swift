@@ -8,10 +8,53 @@ public struct PairingView: View {
         self.controller = controller
     }
 
+    private var reachableServerUrl: String {
+        let rawUrl = controller.signalingClient.serverURL.absoluteString
+        guard let url = URL(string: rawUrl),
+              let host = url.host,
+              (host == "localhost" || host == "127.0.0.1") else {
+            return rawUrl
+        }
+        if let reachableIP = getLocalIPAddress() {
+            var comp = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            comp?.host = reachableIP
+            return comp?.url?.absoluteString ?? rawUrl
+        }
+        return rawUrl
+    }
+
     private var qrCodePayload: String {
         let code = controller.pairingCode.isEmpty ? "000000" : controller.pairingCode
-        let serverUrl = controller.signalingClient.serverURL.absoluteString
-        return "{\"code\":\"\(code)\",\"serverUrl\":\"\(serverUrl)\"}"
+        return "{\"code\":\"\(code)\",\"serverUrl\":\"\(reachableServerUrl)\"}"
+    }
+
+    private func getLocalIPAddress() -> String? {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return nil }
+        defer { freeifaddrs(ifaddr) }
+
+        var tailscaleIP: String?
+        var lanIP: String?
+
+        for ptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
+            let interface = ptr.pointee
+            let addrFamily = interface.ifa_addr.pointee.sa_family
+            if addrFamily == UInt8(AF_INET) {
+                var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
+                            &hostname, socklen_t(hostname.count),
+                            nil, socklen_t(0), NI_NUMERICHOST)
+                let ip = String(cString: hostname)
+                if !ip.hasPrefix("127.") {
+                    if ip.hasPrefix("100.") {
+                        tailscaleIP = ip
+                    } else if lanIP == nil {
+                        lanIP = ip
+                    }
+                }
+            }
+        }
+        return tailscaleIP ?? lanIP
     }
 
     public var body: some View {
@@ -97,7 +140,7 @@ public struct PairingView: View {
             }
 
             // Bottom controls
-            HStack {
+            VStack(spacing: 6) {
                 Button(action: {
                     controller.refreshPairingCode()
                 }) {
@@ -106,10 +149,14 @@ public struct PairingView: View {
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundColor(.accentColor)
+
+                Text("Signaling URL: \(reachableServerUrl)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
             }
         }
         .padding(24)
-        .frame(width: 340, height: 440)
+        .frame(width: 340, height: 460)
     }
 
     private func formattedCode(_ code: String) -> String {

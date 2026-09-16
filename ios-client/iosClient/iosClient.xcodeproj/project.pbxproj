@@ -268,6 +268,7 @@
 				DEVELOPMENT_TEAM = 545L42VNGS;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is needed to scan the pairing QR code from your Mac.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Local network access is used to discover and connect to the local Mac host.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -302,6 +303,7 @@
 				DEVELOPMENT_TEAM = 545L42VNGS;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is needed to scan the pairing QR code from your Mac.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Local network access is used to discover and connect to the local Mac host.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
