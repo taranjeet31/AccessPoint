@@ -95,6 +95,7 @@ final class ControllerCoordinator: ObservableObject, SignalingClientDelegate, We
         
         self.signalingClient = SignalingClient(serverURL: initialURL)
         self.serverURLString = self.signalingClient.serverURL.absoluteString
+        UserDefaults.standard.set(self.signalingClient.serverURL.absoluteString, forKey: "signaling_server_url")
         self.webRTCClient = WebRTCClient()
         self.gestureController = GestureController()
         self.keychainStore = KeychainStore.shared

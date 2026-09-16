@@ -43,8 +43,13 @@ public final class SignalingClient: NSObject, @unchecked Sendable {
         if str.hasPrefix("http://") {
             str = "ws://" + str.dropFirst("http://".count)
         } else if str.hasPrefix("https://") {
-            str = "wss://" + str.dropFirst("https://".count)
-        } else if !str.hasPrefix("ws://") && !str.hasPrefix("wss://") {
+            str = "ws://" + str.dropFirst("https://".count)
+        } else if str.hasPrefix("wss://") {
+            let body = String(str.dropFirst("wss://".count))
+            if body.contains(":8080") || body.range(of: #"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"#, options: .regularExpression) != nil || body.hasPrefix("localhost") {
+                str = "ws://" + body
+            }
+        } else if !str.hasPrefix("ws://") {
             str = "ws://" + str
         }
 
